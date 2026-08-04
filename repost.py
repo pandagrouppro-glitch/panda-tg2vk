@@ -84,6 +84,8 @@ def upload_photo(file_id):
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         uploaded = json.loads(response.read())
+    if not uploaded.get("photo") or uploaded["photo"] == "[]":
+        raise RuntimeError(f"VK upload: пустой ответ {uploaded}")
     saved = vk(
         "photos.saveWallPhoto",
         group_id=VK_GROUP_ID,
@@ -155,6 +157,7 @@ def main():
         if message and suitable(message):
             messages.append(message)
 
+    failed = False
     for group in collect(messages):
         key = group[0].get("media_group_id") or str(group[0]["message_id"])
         if key in state["posted"]:
@@ -166,8 +169,9 @@ def main():
             time.sleep(2)
         except Exception as error:  # noqa: BLE001 - не терять остальные посты из-за одного сбоя
             print("ошибка публикации", key, error, file=sys.stderr)
+            failed = True
 
-    if not dry_run:
+    if not dry_run and not failed:
         save_state(state)
 
 
