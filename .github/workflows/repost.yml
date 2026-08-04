@@ -1,0 +1,36 @@
+name: Репост из Telegram в ВК
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repost
+  cancel-in-progress: false
+
+jobs:
+  repost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Перенести новые посты
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          VK_TOKEN: ${{ secrets.VK_TOKEN }}
+          VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
+          TOPICS: ${{ vars.TOPICS }}
+        run: python3 repost.py
+
+      - name: Запомнить обработанные посты
+        run: |
+          git config user.name "panda-bot"
+          git config user.email "bot@panda-group.pro"
+          git add state.json
+          git diff --cached --quiet || git commit -m "repost state $(date +%FT%H:%M)"
+          git push
