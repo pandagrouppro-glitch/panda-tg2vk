@@ -164,7 +164,7 @@ def main():
             state["posted"].append(key)
             print("опубликовано:", key)
             time.sleep(2)
-        except Exception as error:  # не терять остальные посты из-за одного сбоя
+        except Exception as error:  # noqa: BLE001 - не терять остальные посты из-за одного сбоя
             print("ошибка публикации", key, error, file=sys.stderr)
 
     if not dry_run:
