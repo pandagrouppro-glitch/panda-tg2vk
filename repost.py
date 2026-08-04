@@ -69,6 +69,7 @@ def upload_photo(file_id):
     """Загружает фото из Telegram на стену сообщества и возвращает attachment."""
     server = vk("photos.getWallUploadServer", group_id=VK_GROUP_ID)
     image = http(tg_file_url(file_id), raw=True)
+    print(f"фото из Telegram: {len(image)} байт")
     boundary = "----panda" + str(int(time.time() * 1000))
     parts = [
         f"--{boundary}\r\n".encode(),
