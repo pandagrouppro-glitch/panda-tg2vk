@@ -34,3 +34,15 @@ jobs:
           git add state.json feed_items.json docs/feed.xml
           git diff --cached --quiet || git commit -m "repost state $(date +%FT%H:%M)"
           git push
+
+      - name: Обновить RSS-ленту для Дзена
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${GH_PAT}@github.com/pandagrouppro-glitch/pandagrouppro-glitch.github.io.git" site
+          cp docs/feed.xml site/feed.xml
+          cd site
+          git config user.name "panda-bot"
+          git config user.email "bot@panda-group.pro"
+          git add feed.xml
+          git diff --cached --quiet || (git commit -m "feed $(date +%FT%H:%M)" && git push)
