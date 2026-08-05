@@ -8,12 +8,14 @@
   TOPICS         (необязательно) id тем через запятую; пусто = все темы
 """
 
+import email.utils
 import json
 import os
 import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.sax.saxutils
 
 TG_TOKEN = os.environ["TG_BOT_TOKEN"]
 VK_TOKEN = os.environ["VK_TOKEN"]
@@ -24,7 +26,12 @@ TOPICS = {int(t) for t in os.environ.get("TOPICS", "").replace(" ", "").split(",
 TG_API = f"https://api.telegram.org/bot{TG_TOKEN}"
 VK_API = "https://api.vk.ru/method"
 VK_VERSION = "5.131"
-STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE = os.path.join(BASE_DIR, "state.json")
+FEED_ITEMS = os.path.join(BASE_DIR, "feed_items.json")
+FEED_XML = os.path.join(BASE_DIR, "docs", "feed.xml")
+FEED_LINK = "https://t.me/panda_bandapro"
+FEED_LIMIT = 30
 
 
 def http(url, data=None, raw=False):
@@ -94,7 +101,65 @@ def upload_photo(file_id):
         server=uploaded["server"],
         hash=uploaded["hash"],
     )[0]
-    return f"photo{saved['owner_id']}_{saved['id']}"
+    largest = max(saved["sizes"], key=lambda s: s.get("width", 0))
+    return f"photo{saved['owner_id']}_{saved['id']}", largest["url"]
+
+
+def feed_add(text, image_urls, link):
+    """Добавляет пост в RSS-ленту для Дзена."""
+    items = []
+    if os.path.exists(FEED_ITEMS):
+        with open(FEED_ITEMS, encoding="utf-8") as f:
+            items = json.load(f)
+    title = (text.strip().split("\n", 1)[0] or "Panda Group")[:120]
+    items.insert(
+        0,
+        {
+            "title": title,
+            "link": link,
+            "text": text,
+            "images": image_urls,
+            "date": email.utils.formatdate(usegmt=True),
+        },
+    )
+    items = items[:FEED_LIMIT]
+    with open(FEED_ITEMS, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+    feed_write(items)
+
+
+def feed_write(items):
+    def esc(value):
+        return xml.sax.saxutils.escape(value)
+
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">',
+        "<channel>",
+        "<title>Panda Group</title>",
+        f"<link>{FEED_LINK}</link>",
+        "<description>Бизнес с Китаем под ключ: логистика, авто, туры, обучение</description>",
+        "<language>ru</language>",
+    ]
+    for item in items:
+        body = "".join(f'<img src="{esc(u)}"/>' for u in item["images"])
+        body += "".join(
+            f"<p>{esc(line)}</p>" for line in item["text"].split("\n") if line.strip()
+        )
+        parts += [
+            "<item>",
+            f"<title>{esc(item['title'])}</title>",
+            f"<link>{esc(item['link'])}</link>",
+            f"<guid isPermaLink=\"false\">{esc(item['link'])}</guid>",
+            f"<pubDate>{item['date']}</pubDate>",
+            f"<description>{esc(item['text'][:400])}</description>",
+            f"<content:encoded><![CDATA[{body}]]></content:encoded>",
+            "</item>",
+        ]
+    parts += ["</channel>", "</rss>"]
+    os.makedirs(os.path.dirname(FEED_XML), exist_ok=True)
+    with open(FEED_XML, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
 
 
 def collect(messages):
@@ -123,11 +188,14 @@ def suitable(message):
 def publish(group, dry_run):
     text = ""
     attachments = []
+    image_urls = []
     for message in group:
         text = text or message.get("text") or message.get("caption") or ""
         file_id = biggest_photo(message)
         if file_id and not dry_run:
-            attachments.append(upload_photo(file_id))
+            attachment, url = upload_photo(file_id)
+            attachments.append(attachment)
+            image_urls.append(url)
     if dry_run:
         print("DRY RUN:", text[:200].replace("\n", " | "), f"[фото: {len(group)}]")
         return
@@ -138,6 +206,9 @@ def publish(group, dry_run):
         message=text,
         attachments=",".join(attachments),
     )
+    chat_link = str(SOURCE_CHAT).replace("-100", "")
+    link = f"https://t.me/c/{chat_link}/{group[0]['message_id']}"
+    feed_add(text, image_urls, link)
 
 
 def main():
