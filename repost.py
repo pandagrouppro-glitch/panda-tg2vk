@@ -29,8 +29,11 @@ VK_VERSION = "5.131"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.join(BASE_DIR, "state.json")
 FEED_ITEMS = os.path.join(BASE_DIR, "feed_items.json")
-FEED_XML = os.path.join(BASE_DIR, "docs", "feed.xml")
-FEED_LINK = "https://t.me/panda_bandapro"
+DOCS_DIR = os.path.join(BASE_DIR, "docs")
+FEED_XML = os.path.join(DOCS_DIR, "feed.xml")
+PAGES_DIR = os.path.join(DOCS_DIR, "p")
+SITE = "https://pandagrouppro-glitch.github.io"
+TG_LINK = "https://t.me/panda_bandapro"
 FEED_LIMIT = 30
 
 
@@ -105,7 +108,7 @@ def upload_photo(file_id):
     return f"photo{saved['owner_id']}_{saved['id']}", largest["url"]
 
 
-def feed_add(text, image_urls, link):
+def feed_add(text, image_urls, post_id):
     """Добавляет пост в RSS-ленту для Дзена."""
     items = []
     if os.path.exists(FEED_ITEMS):
@@ -115,8 +118,10 @@ def feed_add(text, image_urls, link):
     items.insert(
         0,
         {
+            "id": str(post_id),
             "title": title,
-            "link": link,
+            "link": f"{SITE}/p/{post_id}.html",
+            "source": f"{TG_LINK}/{post_id}",
             "text": text,
             "images": image_urls,
             "date": email.utils.formatdate(usegmt=True),
@@ -128,36 +133,73 @@ def feed_add(text, image_urls, link):
     feed_write(items)
 
 
+def item_body(item):
+    def esc(value):
+        return xml.sax.saxutils.escape(value)
+
+    body = "".join(f'<img src="{esc(url)}"/>' for url in item["images"])
+    body += "".join(f"<p>{esc(line)}</p>" for line in item["text"].split("\n") if line.strip())
+    return body
+
+
+def page_write(item):
+    """Пишет HTML-страницу поста: Дзен импортирует только ссылки с подтверждённого домена."""
+    def esc(value):
+        return xml.sax.saxutils.escape(value)
+
+    html = "\n".join([
+        "<!doctype html>",
+        '<html lang="ru"><head><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        f"<title>{esc(item['title'])}</title>",
+        f'<link rel="canonical" href="{esc(item["link"])}">',
+        (
+            "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px}"
+            "img{max-width:100%;height:auto;border-radius:8px;margin:8px 0}</style>"
+        ),
+        "</head><body>",
+        f"<h1>{esc(item['title'])}</h1>",
+        item_body(item),
+        f'<p><a href="{esc(item.get("source", TG_LINK))}">Источник: Telegram Panda Group</a></p>',
+        "</body></html>",
+    ])
+    os.makedirs(PAGES_DIR, exist_ok=True)
+    with open(os.path.join(PAGES_DIR, f"{item['id']}.html"), "w", encoding="utf-8") as f:
+        f.write(html)
+
+
 def feed_write(items):
     def esc(value):
         return xml.sax.saxutils.escape(value)
 
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">',
+        (
+            '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"'
+            ' xmlns:atom="http://www.w3.org/2005/Atom">'
+        ),
         "<channel>",
         "<title>Panda Group</title>",
-        f"<link>{FEED_LINK}</link>",
+        f"<link>{SITE}/</link>",
+        f'<atom:link href="{SITE}/feed.xml" rel="self" type="application/rss+xml"/>',
         "<description>Бизнес с Китаем под ключ: логистика, авто, туры, обучение</description>",
         "<language>ru</language>",
+        f"<lastBuildDate>{email.utils.formatdate(usegmt=True)}</lastBuildDate>",
     ]
     for item in items:
-        body = "".join(f'<img src="{esc(u)}"/>' for u in item["images"])
-        body += "".join(
-            f"<p>{esc(line)}</p>" for line in item["text"].split("\n") if line.strip()
-        )
+        page_write(item)
         parts += [
             "<item>",
             f"<title>{esc(item['title'])}</title>",
             f"<link>{esc(item['link'])}</link>",
-            f"<guid isPermaLink=\"false\">{esc(item['link'])}</guid>",
+            f'<guid isPermaLink="true">{esc(item["link"])}</guid>',
             f"<pubDate>{item['date']}</pubDate>",
             f"<description>{esc(item['text'][:400])}</description>",
-            f"<content:encoded><![CDATA[{body}]]></content:encoded>",
+            f"<content:encoded><![CDATA[{item_body(item)}]]></content:encoded>",
             "</item>",
         ]
     parts += ["</channel>", "</rss>"]
-    os.makedirs(os.path.dirname(FEED_XML), exist_ok=True)
+    os.makedirs(DOCS_DIR, exist_ok=True)
     with open(FEED_XML, "w", encoding="utf-8") as f:
         f.write("\n".join(parts))
 
@@ -206,9 +248,7 @@ def publish(group, dry_run):
         message=text,
         attachments=",".join(attachments),
     )
-    chat_link = str(SOURCE_CHAT).replace("-100", "")
-    link = f"https://t.me/c/{chat_link}/{group[0]['message_id']}"
-    feed_add(text, image_urls, link)
+    feed_add(text, image_urls, group[0]["message_id"])
 
 
 def main():
