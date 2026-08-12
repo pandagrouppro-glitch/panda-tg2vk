@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
 <title>Panda Group</title>
-<link>https://t.me/panda_bandapro</link>
+<link>https://pandagrouppro-glitch.github.io/</link>
+<atom:link href="https://pandagrouppro-glitch.github.io/feed.xml" rel="self" type="application/rss+xml"/>
 <description>Бизнес с Китаем под ключ: логистика, авто, туры, обучение</description>
 <language>ru</language>
+<lastBuildDate>Wed, 12 Aug 2026 08:58:55 GMT</lastBuildDate>
 <item>
 <title>🏁 CFMOTO C4 и C5 — новые квадроциклы в наличии в Китае</title>
-<link>https://t.me/c/1622268461/5785</link>
-<guid isPermaLink="false">https://t.me/c/1622268461/5785</guid>
+<link>https://pandagrouppro-glitch.github.io/p/5785.html</link>
+<guid isPermaLink="true">https://pandagrouppro-glitch.github.io/p/5785.html</guid>
 <pubDate>Mon, 10 Aug 2026 17:39:38 GMT</pubDate>
 <description>🏁 CFMOTO C4 и C5 — новые квадроциклы в наличии в Китае
 
@@ -27,8 +29,8 @@ CFMOTO C5
 </item>
 <item>
 <title>📦 Как мы работаем: от заявки до доставки товара из Китая - 5 шагов</title>
-<link>https://t.me/c/1622268461/5783</link>
-<guid isPermaLink="false">https://t.me/c/1622268461/5783</guid>
+<link>https://pandagrouppro-glitch.github.io/p/5783.html</link>
+<guid isPermaLink="true">https://pandagrouppro-glitch.github.io/p/5783.html</guid>
 <pubDate>Fri, 07 Aug 2026 06:01:21 GMT</pubDate>
 <description>📦 Как мы работаем: от заявки до доставки товара из Китая - 5 шагов
 
@@ -39,8 +41,8 @@ CFMOTO C5
 </item>
 <item>
 <title>🏡 Капсульный дом A7 — пространство нового поколения</title>
-<link>https://t.me/c/1622268461/5779</link>
-<guid isPermaLink="false">https://t.me/c/1622268461/5779</guid>
+<link>https://pandagrouppro-glitch.github.io/p/5779.html</link>
+<guid isPermaLink="true">https://pandagrouppro-glitch.github.io/p/5779.html</guid>
 <pubDate>Wed, 05 Aug 2026 15:51:37 GMT</pubDate>
 <description>🏡 Капсульный дом A7 — пространство нового поколения
 
