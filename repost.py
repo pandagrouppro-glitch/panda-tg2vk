@@ -11,6 +11,7 @@
 import email.utils
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -32,9 +33,17 @@ FEED_ITEMS = os.path.join(BASE_DIR, "feed_items.json")
 DOCS_DIR = os.path.join(BASE_DIR, "docs")
 FEED_XML = os.path.join(DOCS_DIR, "feed.xml")
 PAGES_DIR = os.path.join(DOCS_DIR, "p")
+IMG_DIR = os.path.join(DOCS_DIR, "img")
 SITE = "https://pandagrouppro-glitch.github.io"
 TG_LINK = "https://t.me/panda_bandapro"
 FEED_LIMIT = 30
+TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
+    "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+    "я": "ya",
+}
 
 
 def http(url, data=None, raw=False):
@@ -75,11 +84,17 @@ def biggest_photo(message):
     return max(photos, key=lambda p: p.get("file_size", 0))["file_id"] if photos else None
 
 
-def upload_photo(file_id):
+def save_image(image, name):
+    """Кладёт картинку на свой домен: Дзен берёт медиа только с подтверждённого сайта."""
+    os.makedirs(IMG_DIR, exist_ok=True)
+    with open(os.path.join(IMG_DIR, name), "wb") as f:
+        f.write(image)
+    return f"{SITE}/img/{name}"
+
+
+def upload_photo(image):
     """Загружает фото из Telegram на стену сообщества и возвращает attachment."""
     server = vk("photos.getWallUploadServer", group_id=VK_GROUP_ID)
-    image = http(tg_file_url(file_id), raw=True)
-    print(f"фото из Telegram: {len(image)} байт")
     boundary = "----panda" + str(int(time.time() * 1000))
     parts = [
         f"--{boundary}\r\n".encode(),
@@ -104,8 +119,41 @@ def upload_photo(file_id):
         server=uploaded["server"],
         hash=uploaded["hash"],
     )[0]
-    largest = max(saved["sizes"], key=lambda s: s.get("width", 0))
-    return f"photo{saved['owner_id']}_{saved['id']}", largest["url"]
+    return f"photo{saved['owner_id']}_{saved['id']}"
+
+
+def clean_title(text):
+    title = text.strip().split("\n", 1)[0] or "Panda Group"
+    return title[:120].strip()
+
+
+def slugify(post_id, title):
+    """Делает ЧПУ-адрес: Дзен требует читаемые ссылки без параметров."""
+    letters = []
+    for char in title.lower():
+        if char in TRANSLIT:
+            letters.append(TRANSLIT[char])
+        elif char.isalnum() and char.isascii():
+            letters.append(char)
+        else:
+            letters.append("-")
+    slug = re.sub(r"-+", "-", "".join(letters)).strip("-")[:60].strip("-")
+    return f"{post_id}-{slug}" if slug else str(post_id)
+
+
+def make_item(post_id, title, text, image_urls, date, draft=False):
+    slug = slugify(post_id, title)
+    return {
+        "draft": draft,
+        "id": str(post_id),
+        "slug": slug,
+        "title": title,
+        "link": f"{SITE}/p/{slug}/",
+        "source": f"{TG_LINK}/{post_id}",
+        "text": text,
+        "images": image_urls,
+        "date": date,
+    }
 
 
 def feed_add(text, image_urls, post_id):
@@ -114,18 +162,10 @@ def feed_add(text, image_urls, post_id):
     if os.path.exists(FEED_ITEMS):
         with open(FEED_ITEMS, encoding="utf-8") as f:
             items = json.load(f)
-    title = (text.strip().split("\n", 1)[0] or "Panda Group")[:120]
+    title = clean_title(text)
     items.insert(
         0,
-        {
-            "id": str(post_id),
-            "title": title,
-            "link": f"{SITE}/p/{post_id}.html",
-            "source": f"{TG_LINK}/{post_id}",
-            "text": text,
-            "images": image_urls,
-            "date": email.utils.formatdate(usegmt=True),
-        },
+        make_item(post_id, title, text, image_urls, email.utils.formatdate(usegmt=True)),
     )
     items = items[:FEED_LIMIT]
     with open(FEED_ITEMS, "w", encoding="utf-8") as f:
@@ -137,8 +177,10 @@ def item_body(item):
     def esc(value):
         return xml.sax.saxutils.escape(value)
 
-    body = "".join(f'<img src="{esc(url)}"/>' for url in item["images"])
-    body += "".join(f"<p>{esc(line)}</p>" for line in item["text"].split("\n") if line.strip())
+    body = "".join(f'<figure><img src="{esc(url)}"/></figure>' for url in item["images"])
+    body += f"<h2>{esc(item['title'])}</h2>"
+    lines = item["text"].split("\n")[1:] or item["text"].split("\n")
+    body += "".join(f"<p>{esc(line)}</p>" for line in lines if line.strip())
     return body
 
 
@@ -163,8 +205,9 @@ def page_write(item):
         f'<p><a href="{esc(item.get("source", TG_LINK))}">Источник: Telegram Panda Group</a></p>',
         "</body></html>",
     ])
-    os.makedirs(PAGES_DIR, exist_ok=True)
-    with open(os.path.join(PAGES_DIR, f"{item['id']}.html"), "w", encoding="utf-8") as f:
+    page_dir = os.path.join(PAGES_DIR, item["slug"])
+    os.makedirs(page_dir, exist_ok=True)
+    with open(os.path.join(page_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
 
 
@@ -194,7 +237,21 @@ def feed_write(items):
             f"<link>{esc(item['link'])}</link>",
             f'<guid isPermaLink="true">{esc(item["link"])}</guid>',
             f"<pubDate>{item['date']}</pubDate>",
+            "<category>format-post</category>",
+        ]
+        if item.get("draft"):
+            parts.append("<category>native-draft</category>")
+        parts += [
             f"<description>{esc(item['text'][:400])}</description>",
+        ]
+        if item["images"]:
+            cover = item["images"][0]
+            local = os.path.join(IMG_DIR, cover.rsplit("/", 1)[-1])
+            size = os.path.getsize(local) if os.path.exists(local) else 0
+            parts.append(
+                f'<enclosure url="{esc(cover)}" type="image/jpeg" length="{size}"/>'
+            )
+        parts += [
             f"<content:encoded><![CDATA[{item_body(item)}]]></content:encoded>",
             "</item>",
         ]
@@ -202,6 +259,28 @@ def feed_write(items):
     os.makedirs(DOCS_DIR, exist_ok=True)
     with open(FEED_XML, "w", encoding="utf-8") as f:
         f.write("\n".join(parts))
+    index_write(items)
+
+
+def index_write(items):
+    """Список публикаций: робот Дзена должен видеть материалы ссылками с сайта."""
+    def esc(value):
+        return xml.sax.saxutils.escape(value)
+
+    links = "".join(
+        f'<li><a href="/p/{esc(item["slug"])}/">{esc(item["title"])}</a></li>' for item in items
+    )
+    page = (
+        "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        "<title>Panda Group — публикации</title>"
+        '<link rel="alternate" type="application/rss+xml" href="/feed.xml">'
+        "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px}"
+        "</style></head><body><h1>Panda Group — публикации</h1>"
+        f"<ul>{links}</ul></body></html>"
+    )
+    with open(os.path.join(DOCS_DIR, "posts.html"), "w", encoding="utf-8") as f:
+        f.write(page)
 
 
 def collect(messages):
@@ -235,9 +314,11 @@ def publish(group, dry_run):
         text = text or message.get("text") or message.get("caption") or ""
         file_id = biggest_photo(message)
         if file_id and not dry_run:
-            attachment, url = upload_photo(file_id)
-            attachments.append(attachment)
-            image_urls.append(url)
+            image = http(tg_file_url(file_id), raw=True)
+            print(f"фото из Telegram: {len(image)} байт")
+            name = f"{group[0]['message_id']}-{len(image_urls) + 1}.jpg"
+            image_urls.append(save_image(image, name))
+            attachments.append(upload_photo(image))
     if dry_run:
         print("DRY RUN:", text[:200].replace("\n", " | "), f"[фото: {len(group)}]")
         return
