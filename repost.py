@@ -307,41 +307,64 @@ def suitable(message):
 
 
 def publish(group, dry_run):
+    """Скачивает пост из Telegram и сразу кладёт его в RSS; в ВК он уходит отдельно."""
     text = ""
-    attachments = []
-    image_urls = []
+    image_names = []
     for message in group:
         text = text or message.get("text") or message.get("caption") or ""
         file_id = biggest_photo(message)
         if file_id and not dry_run:
             image = http(tg_file_url(file_id), raw=True)
             print(f"фото из Telegram: {len(image)} байт")
-            name = f"{group[0]['message_id']}-{len(image_urls) + 1}.jpg"
-            image_urls.append(save_image(image, name))
-            attachments.append(upload_photo(image))
+            name = f"{group[0]['message_id']}-{len(image_names) + 1}.jpg"
+            save_image(image, name)
+            image_names.append(name)
     if dry_run:
         print("DRY RUN:", text[:200].replace("\n", " | "), f"[фото: {len(group)}]")
-        return
+        return None
+    feed_add(text, [f"{SITE}/img/{name}" for name in image_names], group[0]["message_id"])
+    return {"text": text, "images": image_names}
+
+
+def vk_post(pending):
+    attachments = []
+    for name in pending["images"]:
+        with open(os.path.join(IMG_DIR, name), "rb") as f:
+            attachments.append(upload_photo(f.read()))
     vk(
         "wall.post",
         owner_id=-VK_GROUP_ID,
         from_group=1,
-        message=text,
+        message=pending["text"],
         attachments=",".join(attachments),
     )
-    feed_add(text, image_urls, group[0]["message_id"])
+
+
+def vk_flush(state):
+    """Публикует в ВК накопившиеся посты; при Flood control останавливается до следующего запуска."""
+    pending = state.setdefault("vk_pending", {})
+    for key in list(pending):
+        try:
+            vk_post(pending[key])
+            del pending[key]
+            print("в ВК:", key)
+            time.sleep(2)
+        except Exception as error:  # noqa: BLE001 - ошибка ВК не должна ломать RSS
+            print("ВК не принял", key, error, file=sys.stderr)
+            if "flood" in str(error).lower():
+                break
 
 
 def main():
     dry_run = "--dry-run" in sys.argv
     state = load_state()
+    offset_before = state["offset"]
     updates = http(
         f"{TG_API}/getUpdates",
         {"offset": state["offset"], "timeout": 0, "allowed_updates": json.dumps(["message"])},
     )["result"]
     if not updates:
         print("новых постов нет")
-        return
 
     messages = []
     for update in updates:
@@ -356,15 +379,19 @@ def main():
         if key in state["posted"]:
             continue
         try:
-            publish(group, dry_run)
+            pending = publish(group, dry_run)
             state["posted"].append(key)
-            print("опубликовано:", key)
-            time.sleep(2)
+            if pending:
+                state.setdefault("vk_pending", {})[key] = pending
+            print("в RSS:", key)
         except Exception as error:  # noqa: BLE001 - не терять остальные посты из-за одного сбоя
-            print("ошибка публикации", key, error, file=sys.stderr)
+            print("ошибка обработки", key, error, file=sys.stderr)
             failed = True
 
-    if not dry_run and not failed:
+    if not dry_run:
+        vk_flush(state)
+        if failed:
+            state["offset"] = offset_before
         save_state(state)
 
 
