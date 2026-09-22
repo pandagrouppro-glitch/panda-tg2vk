@@ -376,7 +376,7 @@ def main():
     failed = False
     for group in collect(messages):
         key = group[0].get("media_group_id") or str(group[0]["message_id"])
-        if key in state["posted"]:
+        if key in state["posted"] or str(group[0]["message_id"]) in state["posted"]:
             continue
         try:
             pending = publish(group, dry_run)
