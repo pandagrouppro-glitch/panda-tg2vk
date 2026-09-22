@@ -93,8 +93,7 @@ def save_image(image, name):
 
 
 def upload_photo(image):
-    """Загружает фото из Telegram на стену сообщества и возвращает attachment."""
-    server = vk("photos.getWallUploadServer", group_id=VK_GROUP_ID)
+    """Загружает фото через ключ сообщества и возвращает attachment для wall.post."""
     boundary = "----panda" + str(int(time.time() * 1000))
     parts = [
         f"--{boundary}\r\n".encode(),
@@ -103,18 +102,23 @@ def upload_photo(image):
         image,
         f"\r\n--{boundary}--\r\n".encode(),
     ]
-    request = urllib.request.Request(
-        server["upload_url"],
-        data=b"".join(parts),
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        uploaded = json.loads(response.read())
-    if not uploaded.get("photo") or uploaded["photo"] == "[]":
+    for attempt in range(6):
+        server = vk("photos.getMessagesUploadServer")
+        request = urllib.request.Request(
+            server["upload_url"],
+            data=b"".join(parts),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        with urllib.request.urlopen(request, timeout=120) as response:
+            uploaded = json.loads(response.read())
+        if uploaded.get("photo") and uploaded["photo"] != "[]":
+            break
+        print(f"VK upload: пустой ответ, попытка {attempt + 1}", file=sys.stderr)
+        time.sleep(5)
+    else:
         raise RuntimeError(f"VK upload: пустой ответ {uploaded}")
     saved = vk(
-        "photos.saveWallPhoto",
-        group_id=VK_GROUP_ID,
+        "photos.saveMessagesPhoto",
         photo=uploaded["photo"],
         server=uploaded["server"],
         hash=uploaded["hash"],
